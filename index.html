@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tutorial • Perfil Colaborador — MIP</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#111111;
+    --bg-2:#1a1a1a;
+    --card:#1f1f1f;
+    --line:#2a2a2a;
+    --text:#f5f5f5;
+    --muted:#9a9a9a;
+    --accent:#ea580c;
+    --accent-2:#f97316;
+    --ok:#22c55e;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;height:100%;background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-serif;overflow:hidden}
+
+  .stage{position:relative;width:100vw;height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden}
+
+  .slide{
+    position:absolute;inset:0;
+    display:flex;align-items:center;justify-content:center;
+    opacity:0;transform:translateX(40px) scale(.98);
+    transition:opacity .5s ease, transform .55s cubic-bezier(.22,.61,.36,1);
+    pointer-events:none;padding:48px 64px;
+  }
+  .slide.active{opacity:1;transform:none;pointer-events:auto}
+
+  .grid{
+    display:grid;grid-template-columns:1fr 1.35fr;gap:48px;
+    width:100%;max-width:1400px;align-items:center;
+  }
+
+  .badge{
+    display:inline-flex;align-items:center;gap:8px;
+    padding:6px 12px;border-radius:999px;
+    background:rgba(234,88,12,.12);color:var(--accent-2);
+    font-size:12px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;
+    border:1px solid rgba(234,88,12,.35);
+  }
+  .badge .dot{width:6px;height:6px;background:var(--accent);border-radius:50%}
+
+  h1{font-size:44px;font-weight:800;line-height:1.1;margin:16px 0 8px;letter-spacing:-.02em}
+  h1 .accent{color:var(--accent-2)}
+  h2{font-size:34px;font-weight:700;line-height:1.15;margin:14px 0 10px;letter-spacing:-.01em}
+  .lead{font-size:16px;line-height:1.65;color:var(--muted);max-width:520px}
+
+  ul.steps{list-style:none;padding:0;margin:22px 0 0;display:grid;gap:12px}
+  ul.steps li{
+    display:flex;align-items:flex-start;gap:12px;
+    padding:12px 14px;background:var(--card);border:1px solid var(--line);
+    border-radius:12px;font-size:14.5px;line-height:1.5;color:#e6e6e6;
+  }
+  ul.steps li .num{
+    flex:0 0 26px;height:26px;border-radius:8px;background:var(--accent);
+    display:inline-flex;align-items:center;justify-content:center;
+    font-size:12px;font-weight:700;color:#fff;
+  }
+  ul.steps li b{color:#fff;font-weight:600}
+
+  .shot{
+    position:relative;border-radius:16px;overflow:hidden;
+    background:#0d0d0d;border:1px solid var(--line);
+    box-shadow:0 30px 80px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.02) inset;
+  }
+  .shot img{display:block;width:100%;height:auto}
+  .shot::after{
+    content:"";position:absolute;inset:0;pointer-events:none;
+    background:linear-gradient(180deg,rgba(0,0,0,0) 60%,rgba(0,0,0,.35));
+  }
+
+  /* Cover slide */
+  .cover{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;width:100%;max-width:900px}
+  .logo-wrap{display:flex;align-items:center;gap:14px;margin-bottom:24px}
+  .logo{font-size:38px;font-weight:800;letter-spacing:.24em;color:var(--accent-2)}
+  .logo-sub{font-size:11px;letter-spacing:.28em;color:var(--muted);text-transform:uppercase}
+  .cover h1{font-size:64px;margin:6px 0}
+  .cover .lead{font-size:18px;max-width:640px;margin:14px auto 0}
+  .cover .cta{margin-top:36px;display:inline-flex;align-items:center;gap:10px;color:var(--muted);font-size:13px}
+  .kbd{font-family:inherit;font-size:11px;padding:3px 8px;border-radius:6px;background:#232323;border:1px solid #333;color:#ddd}
+
+  /* Nav */
+  .nav{
+    position:fixed;bottom:22px;left:50%;transform:translateX(-50%);
+    display:flex;align-items:center;gap:14px;
+    padding:10px 14px;background:rgba(26,26,26,.85);backdrop-filter:blur(10px);
+    border:1px solid var(--line);border-radius:999px;z-index:20;
+  }
+  .nav button{
+    background:transparent;border:0;color:#ddd;cursor:pointer;
+    width:34px;height:34px;border-radius:50%;
+    display:inline-flex;align-items:center;justify-content:center;transition:.2s;
+  }
+  .nav button:hover{background:#2b2b2b;color:#fff}
+  .nav .counter{font-size:12.5px;color:var(--muted);min-width:44px;text-align:center;font-variant-numeric:tabular-nums}
+  .dots{display:flex;gap:6px;padding:0 8px}
+  .dots .d{width:7px;height:7px;border-radius:50%;background:#333;transition:.25s;cursor:pointer}
+  .dots .d.active{background:var(--accent);width:22px;border-radius:4px}
+
+  /* Progress bar */
+  .progress{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,var(--accent),var(--accent-2));width:0;z-index:30;transition:width .4s ease}
+
+  /* Slide index tag */
+  .slide-tag{
+    position:absolute;top:28px;left:32px;font-size:12px;color:var(--muted);letter-spacing:.2em;text-transform:uppercase;
+  }
+  .brand-tag{
+    position:absolute;top:28px;right:32px;font-size:12px;color:var(--muted);letter-spacing:.2em;text-transform:uppercase;
+  }
+  .brand-tag b{color:var(--accent-2);letter-spacing:.24em}
+
+  /* End slide */
+  .end{display:flex;flex-direction:column;align-items:center;text-align:center;gap:14px;max-width:820px}
+  .end .icon{
+    width:76px;height:76px;border-radius:22px;background:linear-gradient(135deg,var(--accent),#c2410c);
+    display:flex;align-items:center;justify-content:center;color:#fff;font-size:34px;font-weight:700;
+    box-shadow:0 20px 60px rgba(234,88,12,.35);
+  }
+
+  .callouts{margin-top:22px;display:grid;grid-template-columns:repeat(3,1fr);gap:14px;width:100%}
+  .callouts .c{
+    background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;text-align:left;
+  }
+  .callouts .c b{display:block;color:#fff;margin-bottom:4px;font-size:14px}
+  .callouts .c span{color:var(--muted);font-size:12.5px;line-height:1.5}
+
+  @media (max-width:960px){
+    .grid{grid-template-columns:1fr}
+    .slide{padding:64px 24px 90px}
+    h1{font-size:32px} h2{font-size:26px} .cover h1{font-size:40px}
+  }
+</style>
+</head>
+<body>
+<div class="progress" id="progress"></div>
+<div class="stage" id="stage">
+
+  <!-- Slide 1 : Cover -->
+  <section class="slide active" data-i="0">
+    <div class="cover">
+      <div class="logo-wrap">
+        <div>
+          <div class="logo">MIP</div>
+          <div class="logo-sub">Engenharia • Preservação Industrial</div>
+        </div>
+      </div>
+      <span class="badge"><span class="dot"></span>Tutorial rápido</span>
+      <h1>Perfil <span class="accent">Colaborador</span></h1>
+      <p class="lead">Um passo a passo visual de como funciona a experiência do colaborador dentro do app MIP — do login à execução das atividades em campo.</p>
+      <div class="cta">Use <span class="kbd">←</span> <span class="kbd">→</span> para navegar • <span class="kbd">Espaço</span> avança</div>
+    </div>
+  </section>
+
+  <!-- Slide 2 : Login -->
+  <section class="slide" data-i="1">
+    <div class="slide-tag">01 / Acesso</div>
+    <div class="brand-tag"><b>MIP</b> • Colaborador</div>
+    <div class="grid">
+      <div>
+        <span class="badge"><span class="dot"></span>Etapa 1</span>
+        <h2>Login do colaborador</h2>
+        <p class="lead">A tela inicial autentica o usuário. Cada perfil já vem vinculado à obra e centro de custo — no exemplo, <b style="color:#fff">VALE S.A · S11D · CC 345</b>.</p>
+        <ul class="steps">
+          <li><span class="num">1</span><span>Informe seu <b>usuário</b> (ex.: campo) e a <b>senha</b> fornecida pelo administrador.</span></li>
+          <li><span class="num">2</span><span>Toque em <b>Entrar</b> para acessar o painel do colaborador.</span></li>
+          <li><span class="num">3</span><span>O indicador <b style="color:#22c55e">Online</b> confirma a conexão com o servidor.</span></li>
+        </ul>
+      </div>
+      <div class="shot"><img src="img/01-login.png" alt="Tela de login" /></div>
+    </div>
+  </section>
+
+  <!-- Slide 3 : Painel -->
+  <section class="slide" data-i="2">
+    <div class="slide-tag">02 / Painel</div>
+    <div class="brand-tag"><b>MIP</b> • Colaborador</div>
+    <div class="grid">
+      <div>
+        <span class="badge"><span class="dot"></span>Etapa 2</span>
+        <h2>Painel de trabalho</h2>
+        <p class="lead">A visão geral das preservações. Aqui o colaborador acompanha o fluxo das atividades em quatro colunas de status.</p>
+        <ul class="steps">
+          <li><span class="num">1</span><span><b>Enviado ao Campo</b> — tarefas que chegaram para o colaborador.</span></li>
+          <li><span class="num">2</span><span><b>Em Execução</b> — o que está sendo feito no momento.</span></li>
+          <li><span class="num">3</span><span><b>Recebido do Campo</b> — atividades finalizadas aguardando validação.</span></li>
+          <li><span class="num">4</span><span><b>RPE Gerado</b> — relatórios de preservação já emitidos.</span></li>
+        </ul>
+      </div>
+      <div class="shot"><img src="img/02-painel.png" alt="Painel" /></div>
+    </div>
+  </section>
+
+  <!-- Slide 4 : Minhas Atividades -->
+  <section class="slide" data-i="3">
+    <div class="slide-tag">03 / Minhas Atividades</div>
+    <div class="brand-tag"><b>MIP</b> • Colaborador</div>
+    <div class="grid">
+      <div>
+        <span class="badge"><span class="dot"></span>Etapa 3</span>
+        <h2>Minhas Atividades</h2>
+        <p class="lead">Central de tarefas do colaborador. Os quatro cards mostram, em um relance, a saúde da carteira de atividades.</p>
+        <ul class="steps">
+          <li><span class="num">1</span><span><b>Recebidas</b> — chegaram do ADM e ainda não iniciaram.</span></li>
+          <li><span class="num">2</span><span><b>Em Execução</b> — o colaborador já está trabalhando nelas.</span></li>
+          <li><span class="num">3</span><span><b>Vencem em breve</b> — atenção ao prazo.</span></li>
+          <li><span class="num">4</span><span><b>Vencidas</b> — passaram do prazo e exigem ação imediata.</span></li>
+        </ul>
+      </div>
+      <div class="shot"><img src="img/03-atividades.png" alt="Minhas Atividades" /></div>
+    </div>
+  </section>
+
+  <!-- Slide 5 : Sincronizar -->
+  <section class="slide" data-i="4">
+    <div class="slide-tag">04 / Sincronização</div>
+    <div class="brand-tag"><b>MIP</b> • Colaborador</div>
+    <div class="grid">
+      <div>
+        <span class="badge"><span class="dot"></span>Etapa 4</span>
+        <h2>Sincronizar com o ADM</h2>
+        <p class="lead">O app funciona <b style="color:#fff">offline</b>. Mesmo sem sinal, o colaborador executa e salva atividades — a sincronização acontece quando a conexão volta.</p>
+        <ul class="steps">
+          <li><span class="num">1</span><span><b>Enviar atividades ao ADM</b> — envia o que foi feito em campo para o servidor.</span></li>
+          <li><span class="num">2</span><span><b>Receber atividades do ADM</b> — baixa novas tarefas atribuídas ao colaborador.</span></li>
+          <li><span class="num">3</span><span>O status <b style="color:#22c55e">Conectado ao servidor</b> indica que os dois lados estão sincronizáveis.</span></li>
+        </ul>
+      </div>
+      <div class="shot"><img src="img/04-sincronizar.png" alt="Sincronizar" /></div>
+    </div>
+  </section>
+
+  <!-- Slide 6 : Mapa Técnico -->
+  <section class="slide" data-i="5">
+    <div class="slide-tag">05 / Mapa Técnico</div>
+    <div class="brand-tag"><b>MIP</b> • Colaborador</div>
+    <div class="grid">
+      <div>
+        <span class="badge"><span class="dot"></span>Etapa 5</span>
+        <h2>Mapa Técnico</h2>
+        <p class="lead">Repositório dos desenhos técnicos usados no campo. O colaborador consulta e cadastra plantas vinculadas a áreas e equipamentos.</p>
+        <ul class="steps">
+          <li><span class="num">1</span><span>Use os filtros <b>nome</b>, <b>área</b> e <b>equipamento</b> para localizar rapidamente um desenho.</span></li>
+          <li><span class="num">2</span><span>Toque em <b>Abrir</b> para visualizar o desenho em tela cheia.</span></li>
+          <li><span class="num">3</span><span>Use <b>+ Cadastrar Desenho</b> para adicionar uma nova planta ao acervo.</span></li>
+        </ul>
+      </div>
+      <div class="shot"><img src="img/05-mapa.png" alt="Mapa Técnico" /></div>
+    </div>
+  </section>
+
+  <!-- Slide 7 : Fim -->
+  <section class="slide" data-i="6">
+    <div class="slide-tag">06 / Resumo</div>
+    <div class="brand-tag"><b>MIP</b> • Colaborador</div>
+    <div class="end">
+      <div class="icon">✓</div>
+      <span class="badge"><span class="dot"></span>Pronto</span>
+      <h1>Fluxo do <span style="color:var(--accent-2)">Colaborador</span> concluído</h1>
+      <p class="lead" style="text-align:center">Login → Painel → Minhas Atividades → Sincronização → Mapa Técnico. Com esse ciclo, o colaborador executa as preservações em campo e mantém tudo integrado ao ADM.</p>
+
+      <div class="callouts">
+        <div class="c"><b>Trabalho offline</b><span>Execute atividades sem internet e sincronize quando quiser.</span></div>
+        <div class="c"><b>Fluxo por status</b><span>Enviado → Em Execução → Recebido → RPE Gerado.</span></div>
+        <div class="c"><b>Base técnica</b><span>Desenhos e mapas sempre acessíveis por área/equipamento.</span></div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<div class="nav">
+  <button id="prev" aria-label="Anterior">‹</button>
+  <div class="dots" id="dots"></div>
+  <div class="counter" id="counter">1 / 7</div>
+  <button id="next" aria-label="Próximo">›</button>
+</div>
+
+<script>
+  const slides=[...document.querySelectorAll('.slide')];
+  const total=slides.length;
+  let i=0;
+  const dotsWrap=document.getElementById('dots');
+  const counter=document.getElementById('counter');
+  const progress=document.getElementById('progress');
+
+  slides.forEach((_,idx)=>{
+    const d=document.createElement('div');
+    d.className='d'+(idx===0?' active':'');
+    d.addEventListener('click',()=>go(idx));
+    dotsWrap.appendChild(d);
+  });
+
+  function go(n){
+    i=(n+total)%total;
+    slides.forEach((s,idx)=>s.classList.toggle('active',idx===i));
+    [...dotsWrap.children].forEach((d,idx)=>d.classList.toggle('active',idx===i));
+    counter.textContent=(i+1)+' / '+total;
+    progress.style.width=((i+1)/total*100)+'%';
+  }
+  document.getElementById('prev').onclick=()=>go(i-1);
+  document.getElementById('next').onclick=()=>go(i+1);
+  window.addEventListener('keydown',e=>{
+    if(e.key==='ArrowRight'||e.key===' ')go(i+1);
+    if(e.key==='ArrowLeft')go(i-1);
+    if(e.key==='Home')go(0);
+    if(e.key==='End')go(total-1);
+  });
+  go(0);
+</script>
+</body>
+</html>
