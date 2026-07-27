@@ -1,16 +1,16 @@
 // MIP Preservação Industrial S11D — Service Worker
 // Versão: 2.0.0 — altere este número para forçar atualização em todos os dispositivos
-var CACHE = 'mip-s11d-v2.0.0';
+var CACHE = 'mip-s11d-v2.1.0';
 
 // Arquivos a cachear na instalação
 var ARQUIVOS = [
   './',
-  './mip_preservacao_s11d.html'
+  './mip_preservacao_s11d_v1.0.0.html'
 ];
 
 // Instalar: cachear o app
 self.addEventListener('install', function(e){
-  console.log('[SW] Instalando v2.0.0');
+  console.log('[SW] Instalando v2.1.0');
   e.waitUntil(
     caches.open(CACHE).then(function(cache){
       return cache.addAll(ARQUIVOS).catch(function(err){
@@ -64,7 +64,7 @@ self.addEventListener('fetch', function(e){
         return caches.match(e.request).then(function(cached){
           if(cached) return cached;
           // Fallback: página principal
-          return caches.match('./mip_preservacao_s11d.html');
+          return caches.match('./mip_preservacao_s11d_v1.0.0.html');
         });
       })
   );
