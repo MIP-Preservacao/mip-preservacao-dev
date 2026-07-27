@@ -1706,7 +1706,7 @@ ON CONFLICT (chave) DO NOTHING;</pre>
   <div class="modal lg">
     <div class="mh"><span class="mt" id="mv-title">Validar</span><button class="btn bgh bic" onclick="closeM('m-val')"><i class="fa fa-times"></i></button></div>
     <div class="mb" id="mv-body"></div>
-    <div class="mf" id="mval-footer"><button class="btn bse" onclick="closeM('m-val')">Fechar</button><button class="btn ber2" id="btn-reprovar" onclick="reprovar()"><i class="fa fa-times"></i> Reprovar</button><button class="btn bok" id="btn-aprovar" onclick="aprovar()"><i class="fa fa-check"></i> Aprovar e gerar RPE</button></div>
+    <div class="mf" id="mval-footer"><button class="btn bse" onclick="closeM('m-val')">Fechar</button><button class="btn ber2" id="btn-reprovar" onclick="reprovar()"><i class="fa fa-times"></i> Reprovar</button><button type="button" class="btn bok" id="btn-aprovar" onclick="aprovar()"><i class="fa fa-check"></i> Aprovar e gerar RPE</button></div>
   </div>
 </div>
 
@@ -1880,6 +1880,7 @@ function saveDesenhos(list){
 // ── Supabase client ─────────────────────────────────────────────
 const SUPA_URL='https://ekwqeyqakugsylqimmgf.supabase.co';
 const SUPA_KEY='sb_publishable_fT9VOfopYfE1H4giD2iIIw_gT7yMVKf';
+var _APROVANDO = false; // [PATCH-1] lock contra dupla execucao de aprovar()
 var _sb=null, _ONLINE=false, _DB_CACHE=null;
 
 function initSupabase(){
@@ -2006,7 +2007,15 @@ function _initSupabaseClient(){
         return b;
       }
 
-      return { from: function(table){ return _builder(table); } };
+      // [PATCH-2] adicionar suporte a .rpc() no polyfill fetch-based
+      function _rpc(fn, params){
+        return _req('POST', '/rpc/'+fn, params||{}, 'return=representation')
+          .then(function(res){ return res; });
+      }
+      return {
+        from: function(table){ return _builder(table); },
+        rpc:  function(fn, params){ return _rpc(fn, params); }
+      };
     }
 
     _sb = _sbClient(SUPA_URL, SUPA_KEY);
@@ -2233,21 +2242,19 @@ var DB_Programacoes = {
     }
     try{
       var result;
-      if(prog.id){
-        var {data,error}=await _sb.from('programacoes').eq('id',prog.id).update(rec);
-        if(error)throw error; result=_fromSupa_prog(data);
-      }else{
-        delete rec.id;
-        var {data,error}=await _sb.from('programacoes').upsert([rec],{onConflict:'id'});
-        if(error)throw error; result=_fromSupa_prog(data);
-      }
+      // [PATCH-3] upsert: INSERT se nao existe, UPDATE se existe
+      var {data,error}=await _sb.from('programacoes').upsert([rec],{onConflict:'id'});
+      if(error)throw error;
+      result=_fromSupa_prog(data&&data[0]?data[0]:rec);
       result.fotos=prog.fotos||[];
       var db=gDB(); var idx=db.programacoes.findIndex(function(p){return p.id===result.id;});
       if(idx>=0)db.programacoes[idx]=result; else db.programacoes.push(result);
       _dbCacheSet('programacoes',db.programacoes); _lsSet(DK,JSON.stringify(db));
       return result;
     }catch(e){
-      _warn('[Prog.salvar]',e.message);
+      // [PATCH-4] log detalhado e toast vísivel ao usuario
+      _warn('[Prog.salvar] FALHA id='+prog.id+' status='+prog.status+':', e.message);
+      toast('Falha ao salvar programacao no banco: '+e.message,'er');
       var db=gDB(); var idx=db.programacoes.findIndex(function(p){return p.id===prog.id;});
       if(idx>=0)db.programacoes[idx]=prog; else db.programacoes.push(prog);
       sDB(db); return prog;
@@ -4980,13 +4987,53 @@ function openVal(id){
 }
 async function aprovar(){
   if(!isADM()){toast('Acesso restrito ao Administrador','er');return;}
-  
+
+  // [PATCH-5a] lock contra dupla execucao concorrente
+  if(_APROVANDO){
+    _warn('[aprovar] bloqueada — execucao concorrente detectada.');
+    toast('Aprovacao ja esta em andamento. Aguarde.','in');
+    return;
+  }
+  _APROVANDO = true;
+  var btnApr = document.getElementById('btn-aprovar');
+  var _btnTxt = btnApr ? btnApr.innerHTML : '';
+  if(btnApr){ btnApr.disabled=true; btnApr.innerHTML='<i class="fa fa-spinner fa-spin"></i> Gerando RPE...'; }
+
   var db=gDB(),p=db.programacoes.find(x=>String(x.id)===String(VAL_ID));
   if(!p){ toast('Programação não encontrada','er'); return; }
   if(p.status==='Relatório Gerado'){
     toast('Este relatório já foi aprovado','in');
-    closeM('m-val'); // garante fechamento mesmo já aprovado
+    closeM('m-val');
+    _APROVANDO=false;
+    if(btnApr){btnApr.disabled=false;btnApr.innerHTML=_btnTxt;}
     return;
+  }
+
+  // [PATCH-5b] verificacao dupla no banco antes de chamar a RPC
+  if(_ONLINE && _sb){
+    var chkProg=await _sb.from('programacoes').select('id,status,rpe').eq('id',String(VAL_ID));
+    if(chkProg.data&&chkProg.data.length>0){
+      var _stBanco=chkProg.data[0].status;
+      if(_stBanco==='Relatório Gerado'||_stBanco==='Relatorio Gerado'){
+        var _rpeBanco=chkProg.data[0].rpe;
+        _warn('[aprovar] RPE ja existe no banco: '+_rpeBanco);
+        toast('RPE já gerado para esta atividade: '+(_rpeBanco||'?'),'in');
+        p.status='Relatório Gerado'; p.rpe=_rpeBanco; sDB(db);
+        closeM('m-val'); _APROVANDO=false;
+        if(btnApr){btnApr.disabled=false;btnApr.innerHTML=_btnTxt;}
+        return;
+      }
+    }
+    var chkRpe=await _sb.from('rpes').select('rpe').eq('prog_id',String(VAL_ID));
+    if(chkRpe.data&&chkRpe.data.length>0){
+      var _rpeExist=chkRpe.data[0].rpe;
+      _warn('[aprovar] RPE existente por prog_id '+VAL_ID+': '+_rpeExist);
+      toast('Já existe RPE para esta atividade: '+_rpeExist,'in');
+      p.status='Relatório Gerado'; p.rpe=_rpeExist; sDB(db);
+      closeM('m-val'); _APROVANDO=false;
+      if(btnApr){btnApr.disabled=false;btnApr.innerHTML=_btnTxt;}
+      return;
+    }
   }
   var laudo=(document.getElementById('v-laudo')||{value:'aprovado'}).value,
       resp=(document.getElementById('v-resp')||{value:''}).value,
@@ -5010,16 +5057,25 @@ async function aprovar(){
       rpe = 'RPE-' + String(novoSeq).padStart(4,'0') + '-' + y;
       _log('[aprovar] RPE atômico obtido do banco:', rpe);
     }catch(e){
-      _warn('[aprovar] RPC next_rpe_seq falhou, usando localStorage como fallback:', e.message);
-      // Fallback: usar nRPE local (mantém compatibilidade offline)
-      rpe = nRPE(db);
-      toast('⚠ Aviso: numeração local usada (sem conexão ao banco)','wa');
+      // [PATCH-5c] online: sem fallback — interromper com erro claro
+      _warn('[aprovar] RPC next_rpe_seq FALHOU (online):', e.message);
+      toast('Erro ao obter sequencial do banco: '+e.message+'. Tente novamente.','er');
+      _APROVANDO=false;
+      if(btnApr){btnApr.disabled=false;btnApr.innerHTML=_btnTxt;}
+      return; // nRPE() NAO e chamado
     }
   } else {
-    // Offline: usar nRPE local
-    rpe = nRPE(db);
+    // [PATCH-5c] offline: bloquear geracao de RPE
+    // O sequencial atual e desconhecido localmente e pode haver uso simultaneo.
+    _warn('[aprovar] OFFLINE — geracao de RPE bloqueada.');
+    toast('Sem conexao com o servidor. Conecte-se para gerar o RPE.','er');
+    _APROVANDO=false;
+    if(btnApr){btnApr.disabled=false;btnApr.innerHTML=_btnTxt;}
+    return; // nRPE() NAO e chamado
   }
-  // Salvar datas ANTES de qualquer alteração em p
+  // [PATCH-5d] try: garantir unlock no finally
+  try {
+  // Salvar datas ANTES de qualquer alteracao em p
   var _dataAnt   = p.data_relatorio || '';
   var _proximaAnt= p.proxima || '';
   if(!p.status_log)p.status_log=[];
@@ -5068,6 +5124,15 @@ async function aprovar(){
   updBadges();
   // Atualizar dashboard automaticamente após aprovação
   if(typeof renderDash === 'function') renderDash();
+  } catch(e) {
+    // [PATCH-5d-catch] erro inesperado na persistencia
+    _warn('[aprovar] erro inesperado na persistencia:', e.message);
+    toast('Erro ao salvar RPE: '+e.message,'er');
+  } finally {
+    // [PATCH-5d-finally] garantir unlock e reabilitacao SEMPRE
+    _APROVANDO = false;
+    if(btnApr){ btnApr.disabled=false; btnApr.innerHTML=_btnTxt; }
+  }
 }
 function reprovar(){
   if(!isADM()){toast('Acesso restrito ao Administrador','er');return;}
