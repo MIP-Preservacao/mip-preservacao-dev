@@ -732,9 +732,10 @@ textarea.fc{resize:vertical;min-height:70px}select.fc{appearance:none;cursor:poi
 </head>
 <body>
 <!-- ============================================================
-     CANDIDATO PRODUÇÃO v1.1.1 — ETAPA 5B
-     Multiobra 345/351 + numeração oficial dependente de controle_rpes
-     Requer ETAPA_5B_BACKEND_ATOMICO_CONTROLE.sql instalada antes do uso.
+     CANDIDATO PRODUÇÃO v1.1.2 — ETAPA 6
+     Multiobra 345/351 + Controle oficial com exclusão, substituição e backup.
+     Requer ETAPA_5B_BACKEND_ATOMICO_CONTROLE.sql +
+             ETAPA_6_CONTROLE_EXCLUSAO_SUBSTITUICAO.sql instaladas antes do uso.
      ============================================================ -->
 
 
@@ -1334,15 +1335,15 @@ textarea.fc{resize:vertical;min-height:70px}select.fc{appearance:none;cursor:poi
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
         <div>
           <div style="font-size:14px;font-weight:600">Controle de Relatórios de Preservação — Base Real</div>
-          <div id="ctrl-base-desc" style="font-size:12px;color:var(--mu);margin-top:2px">Fonte oficial da numeração da obra atual. Novos RP/RPE gerados são registrados automaticamente neste Controle.</div>
+          <div id="ctrl-base-desc" style="font-size:12px;color:var(--mu);margin-top:2px">Fonte oficial da numeração da obra atual. A importação substitui integralmente a base da obra e cria backup automático antes da troca.</div>
         </div>
         <div style="display:flex;gap:8px;align-items:center">
           <span id="ctrl-count" style="font-size:12px;color:var(--mu)"></span>
           <button class="btn bse bsm" onclick="ctrlAtualizarServidor()" title="Recarregar dados do Supabase">
             <i class="fa fa-refresh"></i> Atualizar
           </button>
-          <button class="btn bse bsm" id="ctrl-btn-importar" onclick="document.getElementById('ctrl-inp').click()">
-            <i class="fa fa-file-excel"></i> Importar planilha
+          <button class="btn bse bsm" id="ctrl-btn-importar" onclick="document.getElementById('ctrl-inp').click()" title="Substitui o Controle da obra pela planilha selecionada e cria backup automático">
+            <i class="fa fa-file-excel"></i> Importar / substituir
           </button>
           <input type="file" id="ctrl-inp" accept=".xlsx,.xls" style="display:none" onchange="importCtrl(this)">
         </div>
@@ -1413,7 +1414,7 @@ textarea.fc{resize:vertical;min-height:70px}select.fc{appearance:none;cursor:poi
             <th style="padding:8px 12px;text-align:left;font-size:11px;color:var(--mu);font-weight:600">DATA</th>
             <th style="padding:8px 12px;text-align:left;font-size:11px;color:var(--mu);font-weight:600">STATUS</th>
             <th style="padding:8px 12px;text-align:left;font-size:11px;color:var(--mu);font-weight:600">OBS</th>
-            <th style="padding:8px 12px;text-align:left;font-size:11px;color:var(--mu);font-weight:600"></th>
+            <th style="padding:8px 12px;text-align:center;font-size:11px;color:var(--mu);font-weight:600">AÇÕES</th>
           </tr>
         </thead>
         <tbody id="ctrl-tb">
@@ -3251,6 +3252,60 @@ var DB_ControleRPEs={
 
     _ctrlSalvarLocal();
     return salvo;
+  },
+
+  async excluir(id){
+    if(!_ONLINE||!_sb){
+      throw new Error('Sem conexão com o Supabase. A exclusão do Controle foi bloqueada para manter a numeração consistente.');
+    }
+
+    var res=await _sb.rpc('excluir_controle_oficial',{
+      p_obra_id:String(OBRA_ATUAL),
+      p_tipo_relatorio:tipoRelatorioAtual(),
+      p_controle_id:String(id)
+    });
+    if(res && res.error) throw res.error;
+
+    var retorno=res && res.data ? res.data : {};
+    await this.carregar();
+    CTRL_SEQ_PLANILHA=_ctrlMaiorNumeroHistorico();
+    CTRL_SEQ_SERVIDOR=parseInt(retorno.novo_ultimo,10)||0;
+    return retorno;
+  },
+
+  async substituir(lista,nomeArquivo){
+    if(!_ONLINE||!_sb){
+      throw new Error('Sem conexão com o Supabase. A substituição foi bloqueada para evitar perda ou divergência de dados.');
+    }
+
+    var payload=_ctrlNormalizarDados(lista||[]).map(function(item){
+      var rec=_toSupa_ctrl(item,{
+        fonte_planilha:nomeArquivo||'planilha-importada',
+        importado_em:_iso()
+      });
+      delete rec.id;
+      delete rec.obra_id;
+      delete rec.fonte_planilha;
+      delete rec.importado_em;
+      delete rec.editado_no_sistema;
+      delete rec.editado_em;
+      delete rec.atualizado_em;
+      return rec;
+    });
+
+    var res=await _sb.rpc('substituir_controle_oficial',{
+      p_obra_id:String(OBRA_ATUAL),
+      p_tipo_relatorio:tipoRelatorioAtual(),
+      p_nome_arquivo:String(nomeArquivo||'planilha-importada'),
+      p_registros:payload
+    });
+    if(res && res.error) throw res.error;
+
+    var retorno=res && res.data ? res.data : {};
+    await this.carregar();
+    CTRL_SEQ_PLANILHA=_ctrlMaiorNumeroHistorico();
+    CTRL_SEQ_SERVIDOR=parseInt(retorno.maior_numero,10)||CTRL_SEQ_PLANILHA||0;
+    return retorno;
   }
 };
 
@@ -7413,65 +7468,133 @@ function editarRPE(rid){
   renderRPE();
 }
 
-function delRPE(rid){
+async function delRPE(rid){
   if(!isADM()){toast('Acesso restrito ao Administrador','er');return;}
   var tipoRel=tipoRelatorioAtual();
-  
-  if(!confirm('Excluir este '+tipoRel+'? Esta ação não pode ser desfeita.'))return;
+  if(!_ONLINE||!_sb){
+    toast('Sem conexão. A exclusão foi bloqueada para manter Relatórios e Controle sincronizados.','er');
+    return;
+  }
+
   var db=gDB();
   var r=db.relatorios.find(function(x){return String(x.id)===String(rid);});
-  if(r){
-    // Restaurar datas anteriores na programação
+  if(!r){toast('Relatório não encontrado','er');return;}
+
+  var aviso=
+    'EXCLUIR '+String(r.rpe||tipoRel)+'?\n\n'+
+    'Se o registro correspondente no Controle tiver sido GERADO PELO SISTEMA, ele será excluído junto.\n'+
+    'Se o número veio da planilha oficial, o Controle será preservado.\n'+
+    'Se houver PDF assinado, a exclusão será bloqueada.\n\n'+
+    'Esta ação não pode ser desfeita pela interface. Deseja continuar?';
+  if(!confirm(aviso)) return;
+
+  try{
+    var resposta=await _sb.rpc('excluir_relatorio_com_controle',{
+      p_obra_id:String(OBRA_ATUAL),
+      p_tipo_relatorio:tipoRel,
+      p_relatorio_id:String(rid)
+    });
+    if(resposta && resposta.error) throw resposta.error;
+    var resultado=resposta && resposta.data ? resposta.data : {};
+
+    // Restaurar datas anteriores na programação local e persistir a
+    // restauração na tabela programacoes.
     var pr2=db.programacoes.find(function(p){return String(p.id)===String(r.prog_id);});
     if(pr2){
-      pr2.rpe=''; pr2.status='Recebido do Campo';
+      pr2.rpe='';
+      pr2.status='Recebido do Campo';
       if(pr2._data_relatorio_ant !== undefined) pr2.data_relatorio = pr2._data_relatorio_ant;
       if(pr2._proxima_ant !== undefined)        pr2.proxima        = pr2._proxima_ant;
+      try{ await DB_Programacoes.salvar(pr2); }catch(e){ _warn('[delRPE restaurar programação]',e&&e.message?e.message:e); }
     }
-    // Restaurar datas no catálogo ALL[]
-    var pi = ALL.findIndex(function(x){return x.tag===r.tag;});
+
+    // Restaurar datas no catálogo local.
+    var pi=ALL.findIndex(function(x){return x.tag===r.tag;});
     if(pi>=0){
       if(ALL[pi]._data_relatorio_ant !== undefined) ALL[pi].data_relatorio = ALL[pi]._data_relatorio_ant;
       if(ALL[pi]._proxima_ant !== undefined)        ALL[pi].proxima        = ALL[pi]._proxima_ant;
       db.preservacoes = ALL;
     }
-    if(_ONLINE&&_sb) DB_RPEs.excluir(rid).catch(function(){});
+
+    db.relatorios=db.relatorios.filter(function(x){return String(x.id)!==String(rid);});
+    sDB(db);
+
+    await DB_ControleRPEs.carregar();
+    CTRL_SEQ_PLANILHA=_ctrlMaiorNumeroHistorico();
+    CTRL_SEQ_SERVIDOR=parseInt(resultado.novo_ultimo,10)||0;
+    await ctrlAtualizarSequencialUI('Recalculado após exclusão do relatório');
+
+    var msg=tipoRel+' excluído.';
+    if(resultado.controle_removido===true){
+      msg+=' O número também foi retirado do Controle.';
+    }else if(resultado.controle_encontrado===true){
+      msg+=' O número foi mantido no Controle porque pertence à base oficial importada.';
+    }
+    msg+=' Próximo previsto: '+_formatarNumeroRelatorio(parseInt(resultado.proximo,10)||1,0);
+
+    toast(msg,'ok');
+    renderRPE();renderValid();renderCtrl();updBadges();
+  }catch(e){
+    toast('Exclusão bloqueada: '+(e&&e.message?e.message:e),'er');
   }
-  db.relatorios=db.relatorios.filter(function(x){return String(x.id)!==String(rid);});
-  sDB(db);toast(tipoRel+' excluído.','in');renderRPE();renderValid();updBadges();
 }
 
 // ══════ HISTÓRICO ══════
 // renderHist: versão com paginação abaixo
 function getRid(rpe,db){var r=db.relatorios.find(x=>x.rpe===rpe);return r?r.id:0;}
 
-function delProg(pid){
+async function delProg(pid){
   if(!isADM()){toast('Acesso restrito ao Administrador','er');return;}
-  
-  if(!confirm('Excluir este registro permanentemente?\nA data de "Próxima Preservação" voltará ao valor anterior.'))return;
+  if(!_ONLINE||!_sb){
+    toast('Sem conexão. A exclusão foi bloqueada para manter o Controle sincronizado.','er');
+    return;
+  }
+
+  if(!confirm('Excluir este registro permanentemente?\nA data de "Próxima Preservação" voltará ao valor anterior.\nSe houver RP/RPE gerado pelo sistema, ele e o registro correspondente do Controle serão tratados em conjunto.'))return;
   var db=gDB();
   var prog=db.programacoes.find(function(p){return String(p.id)===String(pid);});
-  if(prog){
-    // Restaurar a "Próxima Preservação" no catálogo (ALL[]) ao valor anterior à conclusão
-    var pi=ALL.findIndex(function(x){return x.tag===prog.tag;});
-    if(pi>=0){
-      if(prog._data_relatorio_ant!==undefined) ALL[pi].data_relatorio = prog._data_relatorio_ant;
-      if(prog._proxima_ant!==undefined)        ALL[pi].proxima        = prog._proxima_ant;
-      db.preservacoes = ALL;
+
+  try{
+    if(prog){
+      var pi=ALL.findIndex(function(x){return x.tag===prog.tag;});
+      if(pi>=0){
+        if(prog._data_relatorio_ant!==undefined) ALL[pi].data_relatorio = prog._data_relatorio_ant;
+        if(prog._proxima_ant!==undefined)        ALL[pi].proxima        = prog._proxima_ant;
+        db.preservacoes = ALL;
+      }
+
+      if(prog.rpe){
+        var rl=db.relatorios.find(function(r){return r.rpe===prog.rpe;});
+        if(rl){
+          var resp=await _sb.rpc('excluir_relatorio_com_controle',{
+            p_obra_id:String(OBRA_ATUAL),
+            p_tipo_relatorio:tipoRelatorioAtual(),
+            p_relatorio_id:String(rl.id)
+          });
+          if(resp && resp.error) throw resp.error;
+          db.relatorios=db.relatorios.filter(function(r){return r.rpe!==prog.rpe;});
+        }
+      }
     }
-    if(prog.rpe){
-      var rl=db.relatorios.find(function(r){return r.rpe===prog.rpe;});
-      if(rl&&_ONLINE&&_sb)DB_RPEs.excluir(rl.id).catch(function(){});
-      db.relatorios=db.relatorios.filter(function(r){return r.rpe!==prog.rpe;});
-    }
+
+    await DB_Programacoes.excluir(String(pid));
+    _clearFotoKeys(String(pid));
+    db.programacoes=db.programacoes.filter(function(p){return String(p.id)!==String(pid);});
+    sDB(db);
+
+    await DB_ControleRPEs.carregar();
+    CTRL_SEQ_PLANILHA=_ctrlMaiorNumeroHistorico();
+    await ctrlAtualizarSequencialUI('Recalculado após exclusão do ciclo');
+
+    toast('Excluído. Próxima preservação restaurada.','in');
+    if(typeof renderHist==='function')renderHist();
+    if(typeof renderTable==='function')renderTable();
+    if(typeof filterProg==='function')filterProg();
+    if(typeof renderCtrl==='function')renderCtrl();
+    updBadges();
+  }catch(e){
+    toast('Exclusão bloqueada: '+(e&&e.message?e.message:e),'er');
   }
-  if(_ONLINE&&_sb)DB_Programacoes.excluir(String(pid)).catch(function(){});
-  _clearFotoKeys(String(pid));db.programacoes=db.programacoes.filter(function(p){return String(p.id)!==String(pid);});
-  sDB(db);toast('Excluído. Próxima preservação restaurada.','in');
-  if(typeof renderHist==='function')renderHist();
-  if(typeof renderTable==='function')renderTable();
-  if(typeof filterProg==='function')filterProg();
-  updBadges();
 }
 
 // ══════ ATUALIZAR PROGRAMAÇÃO (botão manual) ══════════════════════
@@ -12777,10 +12900,10 @@ async function ctrlAtualizarSequencialUI(fonte){
     _warn('[Sequencial leitura]',e&&e.message?e.message:e);
   }
 
-  var maiorHistorico=Math.max(
-    _ctrlMaiorNumeroHistorico(),
-    parseInt(CTRL_SEQ_PLANILHA,10)||0
-  );
+  // O próprio Controle carregado é a referência visual. Não manter um
+  // piso antigo em memória após exclusão/substituição legítima.
+  var maiorHistorico=_ctrlMaiorNumeroHistorico();
+  CTRL_SEQ_PLANILHA=maiorHistorico;
 
   var atual=Math.max(
     parseInt(CTRL_SEQ_SERVIDOR,10)||0,
@@ -12926,39 +13049,52 @@ function importCtrl(input){
         });
       }
 
-      var resultado=await DB_ControleRPEs.importar(dados,file.name);
-
-      var seqFinal=null;
-      if(maiorNumeroPlanilha>0){
-        seqFinal=await _ctrlSincronizarSequencialPlanilha(
-          maiorNumeroPlanilha,
-          file.name
-        );
+      if(!dados.length){
+        throw new Error('Nenhum '+tipoAtual+' válido foi encontrado na planilha.');
       }
 
+      var totalAtual=(CTRL_DATA||[]).length;
+      var maiorAtual=_ctrlMaiorNumeroHistorico();
+      var resumoConfirmacao=
+        'SUBSTITUIR O CONTROLE OFICIAL DA OBRA '+String(OBRA_ATUAL)+'?\n\n'+
+        'Registros atuais: '+totalAtual.toLocaleString('pt-BR')+'\n'+
+        'Maior atual: '+(maiorAtual>0?_formatarNumeroRelatorio(maiorAtual,0):'—')+'\n\n'+
+        'Registros lidos na nova planilha: '+dados.length.toLocaleString('pt-BR')+'\n'+
+        'Maior da nova planilha: '+(maiorNumeroPlanilha>0?_formatarNumeroRelatorio(maiorNumeroPlanilha,0):'—')+'\n\n'+
+        'A base atual desta obra será substituída pela planilha selecionada.\n'+
+        'Um backup automático será criado antes da substituição.\n\n'+
+        'Deseja continuar?';
+
+      if(!confirm(resumoConfirmacao)){
+        if(st) st.textContent=totalAtual.toLocaleString('pt-BR')+' '+tipoAtual+'s';
+        input.value='';
+        return;
+      }
+
+      var resultado=await DB_ControleRPEs.substituir(dados,file.name);
+      CTRL_SEQ_PLANILHA=parseInt(resultado.maior_numero,10)||_ctrlMaiorNumeroHistorico();
+      CTRL_SEQ_SERVIDOR=CTRL_SEQ_PLANILHA;
+      await ctrlAtualizarSequencialUI('Controle substituído pela planilha '+String(file.name||''));
+
       var mensagem=
-        resultado.novos+' novo(s) e '+
-        resultado.atualizados+' atualizado(s) no Supabase. '+
-        'Status e observações editados no sistema foram preservados';
+        'Controle substituído com sucesso: '+
+        Number(resultado.registros_gravados||0).toLocaleString('pt-BR')+
+        ' registro(s). Backup automático criado';
 
       if(tipoAtual==='RP' && completadosRev0>0){
         mensagem+='; '+completadosRev0+
-          ' registro(s) sem revisão foram tratados como Rev.0';
+          ' registro(s) sem revisão tratados como Rev.0';
       }
 
-      if(resultado.duplicados_arquivo){
-        mensagem+='; '+resultado.duplicados_arquivo+
-          ' duplicidade(s) interna(s) da planilha consolidada(s)';
+      if(resultado.duplicados_consolidados){
+        mensagem+='; '+resultado.duplicados_consolidados+
+          ' duplicidade(s) consolidada(s)';
       }
 
-      if(maiorNumeroPlanilha>0){
-        var protegido=Math.max(
-          parseInt(seqFinal,10)||0,
-          maiorNumeroPlanilha
-        );
-        mensagem+='; maior '+tipoAtual+' real na coluna Nº Documento: '+
-          _formatarNumeroRelatorio(maiorNumeroPlanilha,0)+
-          '; próximo protegido: '+_formatarNumeroRelatorio(protegido+1,0);
+      if(resultado.maior_numero!==undefined){
+        mensagem+='; maior '+tipoAtual+': '+
+          _formatarNumeroRelatorio(parseInt(resultado.maior_numero,10)||0,0)+
+          '; próximo: '+_formatarNumeroRelatorio(parseInt(resultado.proximo,10)||1,0);
       }
 
       toast(mensagem,'ok');
@@ -13064,7 +13200,7 @@ function renderCtrl(){
         '<td style="padding:7px 12px;font-size:11px;white-space:nowrap">'+esc(_ctrlDataExibicao(r.data)||'—')+'</td>'+
         '<td style="padding:7px 12px">'+_stBadge(r.status)+'</td>'+
         '<td style="padding:7px 12px;font-size:11px;color:var(--mu);max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+esc(r.obs)+'">'+esc(r.obs||'—')+'</td>'+
-        (isADM()?'<td style="padding:7px 10px"><button class="btn bse bsm" onclick="ctrlEditar(\''+r.id+'\',\'ctrl\')" title="Editar"><i class="fa fa-edit"></i></button></td>':'<td></td>')+
+        (isADM()?'<td style="padding:7px 10px"><div style="display:flex;justify-content:center;gap:5px;white-space:nowrap"><button class="btn bse bsm" onclick="ctrlEditar(\''+r.id+'\',\'ctrl\')" title="Editar"><i class="fa fa-edit"></i></button><button class="btn bgh bsm" onclick="ctrlExcluir(\''+r.id+'\')" title="Excluir do Controle"><i class="fa fa-trash" style="color:var(--er)"></i></button></div></td>':'<td></td>')+
       '</tr>';
     }).join('');
   }
@@ -13085,6 +13221,46 @@ function renderCtrl(){
 }
 
 function ctrlGoPage(p){ CTRL_PAGE=p; renderCtrl(); }
+
+// ── Excluir registro do Controle oficial ──────────────────────────────
+async function ctrlExcluir(id){
+  if(!isADM()){toast('Acesso restrito ao Administrador','er');return;}
+  if(!_ONLINE||!_sb){
+    toast('Sem conexão. A exclusão do Controle só pode ser feita online.','er');
+    return;
+  }
+
+  var reg=(CTRL_DATA||[]).find(function(x){return String(x.id)===String(id);});
+  if(!reg){toast('Registro do Controle não encontrado','er');return;}
+
+  var origem=reg.fonte_planilha||'Origem não informada';
+  var msg=
+    'EXCLUIR '+String(reg.rpe||'este registro')+' DO CONTROLE OFICIAL?\n\n'+
+    'Obra: '+String(OBRA_ATUAL)+'\n'+
+    'Origem: '+origem+'\n\n'+
+    'Se existir um relatório gerado ou PDF assinado com este número, a exclusão será bloqueada.\n'+
+    'Se este for o último número, o próximo previsto será recalculado.\n'+
+    'Um backup automático será criado.\n\n'+
+    'Deseja continuar?';
+
+  if(!confirm(msg)) return;
+
+  try{
+    var resultado=await DB_ControleRPEs.excluir(id);
+    CTRL_SEQ_PLANILHA=_ctrlMaiorNumeroHistorico();
+    CTRL_SEQ_SERVIDOR=parseInt(resultado.novo_ultimo,10)||0;
+    await ctrlAtualizarSequencialUI('Recalculado após exclusão');
+    _ctrlFillAreas();
+    renderCtrl();
+    toast(
+      String(resultado.rpe||reg.rpe)+' excluído do Controle. Próximo previsto: '+
+      _formatarNumeroRelatorio(parseInt(resultado.proximo,10)||1,0),
+      'ok'
+    );
+  }catch(e){
+    toast('Exclusão bloqueada: '+(e&&e.message?e.message:e),'er');
+  }
+}
 
 // ── Editar registro no Controle RPEs ─────────────────────────────────
 var _CTRL_EDIT = null;
